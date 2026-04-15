@@ -367,31 +367,31 @@ class Game:
             self.orders.append(order)
 
     def handle_collision(self):
+        # 分别检测X轴和Y轴的碰撞
+        player_rect = self.player.rect
+        
         for wall in self.walls:
-            if self.player.rect.colliderect(wall):
-                if self.player.direction == "up":
-                    self.player.y = wall.bottom
-                elif self.player.direction == "down":
-                    self.player.y = wall.top - self.player.height
-                elif self.player.direction == "left":
-                    self.player.x = wall.right
-                elif self.player.direction == "right":
-                    self.player.x = wall.left - self.player.width
+            if player_rect.colliderect(wall):
+                # 计算重叠区域
+                overlap_left = player_rect.right - wall.left
+                overlap_right = wall.right - player_rect.left
+                overlap_top = player_rect.bottom - wall.top
+                overlap_bottom = wall.bottom - player_rect.top
+                
+                # 找到最小重叠方向
+                min_overlap = min(overlap_left, overlap_right, overlap_top, overlap_bottom)
+                
+                # 根据最小重叠方向推开玩家
+                if min_overlap == overlap_left:
+                    self.player.x -= overlap_left
+                elif min_overlap == overlap_right:
+                    self.player.x += overlap_right
+                elif min_overlap == overlap_top:
+                    self.player.y -= overlap_top
                 else:
-                    # 如果没有方向，根据重叠区域判断
-                    overlap_left = (self.player.rect.right - wall.left)
-                    overlap_right = (wall.right - self.player.rect.left)
-                    overlap_top = (self.player.rect.bottom - wall.top)
-                    overlap_bottom = (wall.bottom - self.player.rect.top)
-                    min_overlap = min(overlap_left, overlap_right, overlap_top, overlap_bottom)
-                    if min_overlap == overlap_left:
-                        self.player.x = wall.left - self.player.width
-                    elif min_overlap == overlap_right:
-                        self.player.x = wall.right
-                    elif min_overlap == overlap_top:
-                        self.player.y = wall.top - self.player.height
-                    else:
-                        self.player.y = wall.bottom
+                    self.player.y += overlap_bottom
+                    
+                # 更新rect
                 self.player.rect.x = int(self.player.x)
                 self.player.rect.y = int(self.player.y)
 
@@ -489,60 +489,122 @@ class Game:
         self.transition_target = target_state
 
     def draw_ui(self):
+        # 顶部信息栏 - 简洁设计
+        pygame.draw.rect(self.screen, (50, 45, 40), (0, 0, SCREEN_WIDTH, 60))
+        pygame.draw.line(self.screen, GOLD, (0, 60), (SCREEN_WIDTH, 60), 2)
+        
+        # 金币
         gold_text = self.font_small.render(f"金币: {self.gold}", True, GOLD)
-        self.screen.blit(gold_text, (20, 20))
-
-        target_text = self.font_tiny.render(f"目标: {self.target_gold}", True, GRAY)
-        self.screen.blit(target_text, (20, 50))
-
-        stamina_bar_width = 150
-        stamina_height = 20
+        self.screen.blit(gold_text, (15, 10))
+        target_text = self.font_tiny.render(f"目标: {self.target_gold}", True, (180, 170, 160))
+        self.screen.blit(target_text, (15, 35))
+        
+        # 天数和时间 - 居中
+        day_text = self.font_small.render(f"第 {self.day} 天", True, WHITE)
+        day_rect = day_text.get_rect(center=(SCREEN_WIDTH // 2, 20))
+        self.screen.blit(day_text, day_rect)
+        time_text = self.font_tiny.render(f"剩余: {int(self.day_timer)}s", True, (200, 200, 190))
+        time_rect = time_text.get_rect(center=(SCREEN_WIDTH // 2, 42))
+        self.screen.blit(time_text, time_rect)
+        
+        # 体力条
+        bar_w = 120
+        bar_h = 12
+        bar_x = SCREEN_WIDTH - 140
+        bar_y = 15
         stamina_ratio = self.player.stamina / self.player.max_stamina
-        pygame.draw.rect(self.screen, GRAY, (20, 80, stamina_bar_width, stamina_height))
-        pygame.draw.rect(self.screen, GREEN, (20, 80, int(stamina_bar_width * stamina_ratio), stamina_height))
-        pygame.draw.rect(self.screen, BLACK, (20, 80, stamina_bar_width, stamina_height), 2)
-
-        order_y = 150
-        order_title = self.font_small.render("订单:", True, BLACK)
-        self.screen.blit(order_title, (SCREEN_WIDTH - 200, order_y))
-
-        for i, order in enumerate(self.orders[:5]):
-            y = order_y + 35 + i * 50
-            recipe = RECIPES[order.recipe_name]
-            color = RED if order.remaining_time < 20 else BLACK
-            text = self.font_tiny.render(f"{recipe.name} ({int(order.remaining_time)}s)", True, color)
-            self.screen.blit(text, (SCREEN_WIDTH - 200, y))
-
-            bar_width = 120
-            time_ratio = max(0, order.remaining_time / order.time_limit)
-            bar_color = GREEN if time_ratio > 0.5 else YELLOW if time_ratio > 0.25 else RED
-            pygame.draw.rect(self.screen, GRAY, (SCREEN_WIDTH - 200, y + 20, bar_width, 8))
-            pygame.draw.rect(self.screen, bar_color, (SCREEN_WIDTH - 200, y + 20, int(bar_width * time_ratio), 8))
-
-        inv_y = SCREEN_HEIGHT - 100
-        inv_title = self.font_small.render("冰箱库存:", True, BLACK)
-        self.screen.blit(inv_title, (20, inv_y))
-
+        
+        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, bar_y, bar_w, bar_h))
+        stamina_color = GREEN if stamina_ratio > 0.5 else YELLOW if stamina_ratio > 0.25 else RED
+        pygame.draw.rect(self.screen, stamina_color, (bar_x, bar_y, int(bar_w * stamina_ratio), bar_h))
+        pygame.draw.rect(self.screen, WHITE, (bar_x, bar_y, bar_w, bar_h), 1)
+        
+        stamina_label = self.font_tiny.render("体力", True, WHITE)
+        self.screen.blit(stamina_label, (bar_x - 40, bar_y - 2))
+        
+        # 右侧订单面板
+        if self.orders:
+            panel_w = 200
+            panel_x = SCREEN_WIDTH - panel_w - 10
+            panel_y = 70
+            row_h = 45
+            
+            # 面板背景
+            panel_h = min(len(self.orders), 4) * row_h + 30
+            pygame.draw.rect(self.screen, (40, 38, 36), (panel_x, panel_y, panel_w, panel_h))
+            pygame.draw.rect(self.screen, GOLD, (panel_x, panel_y, panel_w, panel_h), 2)
+            
+            # 标题
+            title = self.font_small.render("订单", True, GOLD)
+            self.screen.blit(title, (panel_x + 10, panel_y + 5))
+            
+            # 订单列表
+            for i, order in enumerate(self.orders[:4]):
+                y = panel_y + 28 + i * row_h
+                recipe = RECIPES[order.recipe_name]
+                time_ratio = max(0, order.remaining_time / order.time_limit)
+                
+                # 背景色根据紧急程度
+                if time_ratio < 0.25:
+                    bg_color = (80, 50, 50)
+                elif time_ratio < 0.5:
+                    bg_color = (80, 70, 50)
+                else:
+                    bg_color = (50, 60, 50)
+                
+                pygame.draw.rect(self.screen, bg_color, (panel_x + 5, y, panel_w - 10, 40))
+                
+                # 菜品名
+                text_color = WHITE if time_ratio > 0.25 else (255, 150, 150)
+                name_text = self.font_tiny.render(recipe.name, True, text_color)
+                self.screen.blit(name_text, (panel_x + 10, y + 5))
+                
+                # 倒计时
+                time_text = self.font_tiny.render(f"{int(order.remaining_time)}s", True, text_color)
+                self.screen.blit(time_text, (panel_x + panel_w - 50, y + 5))
+                
+                # 进度条
+                bar_color = GREEN if time_ratio > 0.5 else YELLOW if time_ratio > 0.25 else RED
+                pygame.draw.rect(self.screen, DARK_GRAY, (panel_x + 10, y + 25, panel_w - 20, 6))
+                pygame.draw.rect(self.screen, bar_color, (panel_x + 10, y + 25, int((panel_w - 20) * time_ratio), 6))
+        
+        # 底部库存面板
         if self.fridge:
+            panel_h = 70
+            panel_y = SCREEN_HEIGHT - panel_h - 5
+            panel_x = 10
+            item_w = 120
+            
+            pygame.draw.rect(self.screen, (40, 38, 36), (panel_x, panel_y, 3 * item_w + 20, panel_h))
+            pygame.draw.rect(self.screen, GOLD, (panel_x, panel_y, 3 * item_w + 20, panel_h), 2)
+            
+            # 标题
+            title = self.font_small.render("库存 (1/2/3选择)", True, GOLD)
+            self.screen.blit(title, (panel_x + 10, panel_y + 5))
+            
             items = [
-                ("蔬菜", self.fridge.inventory.get(IngredientType.VEGETABLE, 0), GREEN),
-                ("肉类", self.fridge.inventory.get(IngredientType.MEAT, 0), RED),
-                ("面粉", self.fridge.inventory.get(IngredientType.FLOUR, 0), WHITE),
+                ("蔬菜", self.fridge.inventory.get(IngredientType.VEGETABLE, 0), GREEN, IngredientType.VEGETABLE),
+                ("肉类", self.fridge.inventory.get(IngredientType.MEAT, 0), RED, IngredientType.MEAT),
+                ("面粉", self.fridge.inventory.get(IngredientType.FLOUR, 0), WHITE, IngredientType.FLOUR),
             ]
-            for i, (name, count, color) in enumerate(items):
-                x = 20 + i * 100
-                rect = pygame.Rect(x, inv_y + 35, 80, 30)
-                bg_color = color if self.selected_ingredient == [IngredientType.VEGETABLE, IngredientType.MEAT, IngredientType.FLOUR][i] else LIGHT_GRAY
-                pygame.draw.rect(self.screen, bg_color, rect)
-                pygame.draw.rect(self.screen, BLACK, rect, 2)
-                text = self.font_tiny.render(f"{name}: {count}", True, BLACK)
-                self.screen.blit(text, (x + 5, inv_y + 40))
-
-        day_text = self.font_small.render(f"第 {self.day} 天", True, BLACK)
-        self.screen.blit(day_text, (SCREEN_WIDTH // 2 - 50, 20))
-
-        time_text = self.font_small.render(f"剩余: {int(self.day_timer)}s", True, BLACK)
-        self.screen.blit(time_text, (SCREEN_WIDTH // 2 - 50, 50))
+            
+            for i, (name, count, color, ing_type) in enumerate(items):
+                x = panel_x + 10 + i * item_w
+                y = panel_y + 30
+                is_selected = self.selected_ingredient == ing_type
+                
+                # 背景
+                bg_color = color if is_selected else (60, 58, 56)
+                pygame.draw.rect(self.screen, bg_color, (x, y, item_w - 10, 35))
+                if is_selected:
+                    pygame.draw.rect(self.screen, GOLD, (x, y, item_w - 10, 35), 2)
+                
+                # 文字
+                text_color = WHITE if is_selected else BLACK
+                name_text = self.font_tiny.render(name, True, text_color)
+                self.screen.blit(name_text, (x + 5, y + 5))
+                count_text = self.font_tiny.render(f"{count}", True, text_color)
+                self.screen.blit(count_text, (x + 5, y + 18))
 
     def draw(self):
         self.screen.fill(BEIGE)
