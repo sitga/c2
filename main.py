@@ -8,21 +8,6 @@ from typing import Optional, List, Dict, Tuple
 
 pygame.init()
 
-def get_font(size):
-    """获取支持中文的字体"""
-    chinese_fonts = [
-        "C:/Windows/Fonts/simhei.ttf",
-        "C:/Windows/Fonts/simsun.ttc",
-        "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/msyhbd.ttc",
-    ]
-    for font_path in chinese_fonts:
-        try:
-            return pygame.font.Font(font_path, size)
-        except:
-            continue
-    return pygame.font.Font(None, size)
-
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 FPS = 60
@@ -40,6 +25,46 @@ ORANGE = (255, 150, 50)
 BROWN = (139, 90, 43)
 BEIGE = (245, 222, 179)
 GOLD = (255, 215, 0)
+
+def get_font(size):
+    """获取支持中文的字体"""
+    chinese_fonts = [
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/simsun.ttc",
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/msyhbd.ttc",
+    ]
+    for font_path in chinese_fonts:
+        try:
+            return pygame.font.Font(font_path, size)
+        except:
+            continue
+    return pygame.font.Font(None, size)
+
+def draw_rounded_rect(screen, rect, color, radius=10, border=0):
+    """绘制圆角矩形，支持边框"""
+    x, y, w, h = rect
+    if border == 0:
+        pygame.draw.rect(screen, color, (x + radius, y, w - 2 * radius, h))
+        pygame.draw.rect(screen, color, (x, y + radius, w, h - 2 * radius))
+        pygame.draw.circle(screen, color, (x + radius, y + radius), radius)
+        pygame.draw.circle(screen, color, (x + w - radius, y + radius), radius)
+        pygame.draw.circle(screen, color, (x + radius, y + h - radius), radius)
+        pygame.draw.circle(screen, color, (x + w - radius, y + h - radius), radius)
+    else:
+        pygame.draw.rect(screen, color, (x + radius, y, w - 2 * radius, border))
+        pygame.draw.rect(screen, color, (x + radius, y + h - border, w - 2 * radius, border))
+        pygame.draw.rect(screen, color, (x, y + radius, border, h - 2 * radius))
+        pygame.draw.rect(screen, color, (x + w - border, y + radius, border, h - 2 * radius))
+        for cx, cy in [(x + radius, y + radius), (x + w - radius, y + radius), 
+                       (x + radius, y + h - radius), (x + w - radius, y + h - radius)]:
+            pygame.draw.circle(screen, color, (cx, cy), radius, border)
+
+def draw_text_centered(screen, text, font, x, y, color=BLACK):
+    """绘制居中文字"""
+    surface = font.render(text, True, color)
+    rect = surface.get_rect(center=(x, y))
+    screen.blit(surface, rect)
 
 class GameState(Enum):
     MAIN_MENU = auto()
@@ -96,7 +121,7 @@ class Player:
         self.direction = "down"
         self.rect = pygame.Rect(x, y, self.width, self.height)
 
-    def update(self, keys, dt: float):
+    def update(self, keys, dt: float, walls: List[pygame.Rect]):
         if self.interaction_cooldown > 0:
             self.interaction_cooldown -= dt
 
@@ -106,16 +131,16 @@ class Player:
         speed = self.boost_speed if self.is_boosting else self.speed
         dx, dy = 0, 0
 
-        if keys[pygame.K_w]:
+        if keys[pygame.K_w] or keys[pygame.K_UP]:
             dy = -speed
             self.direction = "up"
-        if keys[pygame.K_s]:
+        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
             dy = speed
             self.direction = "down"
-        if keys[pygame.K_a]:
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
             dx = -speed
             self.direction = "left"
-        if keys[pygame.K_d]:
+        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
             dx = speed
             self.direction = "right"
 
@@ -124,13 +149,29 @@ class Player:
             if self.stamina <= 0:
                 self.is_boosting = False
 
-        self.x += dx
-        self.y += dy
+        new_x = self.x + dx
+        new_y = self.y + dy
 
-        # 限制玩家在屏幕范围内
+        can_move_x = True
+        test_rect = pygame.Rect(new_x, self.y, self.width, self.height)
+        for wall in walls:
+            if test_rect.colliderect(wall):
+                can_move_x = False
+                break
+        if can_move_x:
+            self.x = new_x
+
+        can_move_y = True
+        test_rect = pygame.Rect(self.x, new_y, self.width, self.height)
+        for wall in walls:
+            if test_rect.colliderect(wall):
+                can_move_y = False
+                break
+        if can_move_y:
+            self.y = new_y
+
         self.x = max(20, min(SCREEN_WIDTH - 20 - self.width, self.x))
         self.y = max(20, min(SCREEN_HEIGHT - 20 - self.height, self.y))
-
         self.rect.x = int(self.x)
         self.rect.y = int(self.y)
 
@@ -307,7 +348,7 @@ class Game:
 
     def reset_game(self):
         self.state = GameState.MAIN_MENU
-        self.player = Player(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+        self.player = Player(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 200)
         self.gold = 500
         self.target_gold = 50000
         self.day = 1
@@ -366,35 +407,6 @@ class Game:
             order = Order(customer.order, customer, 60 if is_critic else 90)
             self.orders.append(order)
 
-    def handle_collision(self):
-        for wall in self.walls:
-            if self.player.rect.colliderect(wall):
-                if self.player.direction == "up":
-                    self.player.y = wall.bottom
-                elif self.player.direction == "down":
-                    self.player.y = wall.top - self.player.height
-                elif self.player.direction == "left":
-                    self.player.x = wall.right
-                elif self.player.direction == "right":
-                    self.player.x = wall.left - self.player.width
-                else:
-                    # 如果没有方向，根据重叠区域判断
-                    overlap_left = (self.player.rect.right - wall.left)
-                    overlap_right = (wall.right - self.player.rect.left)
-                    overlap_top = (self.player.rect.bottom - wall.top)
-                    overlap_bottom = (wall.bottom - self.player.rect.top)
-                    min_overlap = min(overlap_left, overlap_right, overlap_top, overlap_bottom)
-                    if min_overlap == overlap_left:
-                        self.player.x = wall.left - self.player.width
-                    elif min_overlap == overlap_right:
-                        self.player.x = wall.right
-                    elif min_overlap == overlap_top:
-                        self.player.y = wall.top - self.player.height
-                    else:
-                        self.player.y = wall.bottom
-                self.player.rect.x = int(self.player.x)
-                self.player.rect.y = int(self.player.y)
-
     def check_interactions(self):
         interact_rect = self.player.get_interact_rect()
 
@@ -440,8 +452,7 @@ class Game:
     def update(self, dt: float):
         if self.state == GameState.PLAYING:
             keys = pygame.key.get_pressed()
-            self.player.update(keys, dt)
-            self.handle_collision()
+            self.player.update(keys, dt, self.walls)
 
             self.spawn_timer += dt
             if self.spawn_timer >= 8:
@@ -489,60 +500,85 @@ class Game:
         self.transition_target = target_state
 
     def draw_ui(self):
-        gold_text = self.font_small.render(f"金币: {self.gold}", True, GOLD)
-        self.screen.blit(gold_text, (20, 20))
+        panel_alpha = 230
+        
+        panel_gold = pygame.Surface((180, 70), pygame.SRCALPHA)
+        draw_rounded_rect(panel_gold, (0, 0, 180, 70), (*WHITE, panel_alpha))
+        self.screen.blit(panel_gold, (20, 20))
+        draw_rounded_rect(self.screen, (20, 20, 180, 70), DARK_GRAY, radius=10, border=2)
+        
+        draw_text_centered(self.screen, f"金币: {self.gold}", self.font_small, 110, 45, GOLD)
+        draw_text_centered(self.screen, f"目标: {self.target_gold}", self.font_tiny, 110, 75, GRAY)
 
-        target_text = self.font_tiny.render(f"目标: {self.target_gold}", True, GRAY)
-        self.screen.blit(target_text, (20, 50))
-
-        stamina_bar_width = 150
-        stamina_height = 20
+        stamina_panel = pygame.Surface((180, 50), pygame.SRCALPHA)
+        draw_rounded_rect(stamina_panel, (0, 0, 180, 50), (*WHITE, panel_alpha))
+        self.screen.blit(stamina_panel, (20, 100))
+        draw_rounded_rect(self.screen, (20, 100, 180, 50), DARK_GRAY, radius=10, border=2)
+        
+        stamina_bar_width = 140
+        stamina_height = 16
         stamina_ratio = self.player.stamina / self.player.max_stamina
-        pygame.draw.rect(self.screen, GRAY, (20, 80, stamina_bar_width, stamina_height))
-        pygame.draw.rect(self.screen, GREEN, (20, 80, int(stamina_bar_width * stamina_ratio), stamina_height))
-        pygame.draw.rect(self.screen, BLACK, (20, 80, stamina_bar_width, stamina_height), 2)
+        stamina_x, stamina_y = 40, 125
+        draw_text_centered(self.screen, "体力", self.font_tiny, 55, stamina_y - 8, BLACK)
+        pygame.draw.rect(self.screen, GRAY, (stamina_x, stamina_y, stamina_bar_width, stamina_height))
+        pygame.draw.rect(self.screen, GREEN, (stamina_x, stamina_y, int(stamina_bar_width * stamina_ratio), stamina_height))
 
-        order_y = 150
-        order_title = self.font_small.render("订单:", True, BLACK)
-        self.screen.blit(order_title, (SCREEN_WIDTH - 200, order_y))
+        center_panel = pygame.Surface((200, 80), pygame.SRCALPHA)
+        draw_rounded_rect(center_panel, (0, 0, 200, 80), (*WHITE, panel_alpha))
+        center_x, center_y = SCREEN_WIDTH // 2 - 100, 20
+        self.screen.blit(center_panel, (center_x, center_y))
+        draw_rounded_rect(self.screen, (center_x, center_y, 200, 80), DARK_GRAY, radius=10, border=2)
+        
+        draw_text_centered(self.screen, f"第 {self.day} 天", self.font_small, SCREEN_WIDTH // 2, 50, BLACK)
+        timer_color = RED if self.day_timer < 30 else BLACK
+        draw_text_centered(self.screen, f"剩余: {int(self.day_timer)}s", self.font_small, SCREEN_WIDTH // 2, 80, timer_color)
 
-        for i, order in enumerate(self.orders[:5]):
-            y = order_y + 35 + i * 50
-            recipe = RECIPES[order.recipe_name]
-            color = RED if order.remaining_time < 20 else BLACK
-            text = self.font_tiny.render(f"{recipe.name} ({int(order.remaining_time)}s)", True, color)
-            self.screen.blit(text, (SCREEN_WIDTH - 200, y))
+        if self.orders:
+            order_panel_height = 60 + len(self.orders[:5]) * 55
+            order_panel = pygame.Surface((220, order_panel_height), pygame.SRCALPHA)
+            draw_rounded_rect(order_panel, (0, 0, 220, order_panel_height), (*WHITE, panel_alpha))
+            order_x, order_y = SCREEN_WIDTH - 240, 150
+            self.screen.blit(order_panel, (order_x, order_y))
+            draw_rounded_rect(self.screen, (order_x, order_y, 220, order_panel_height), DARK_GRAY, radius=10, border=2)
+            
+            draw_text_centered(self.screen, "当前订单", self.font_small, order_x + 110, order_y + 25, BLACK)
 
-            bar_width = 120
-            time_ratio = max(0, order.remaining_time / order.time_limit)
-            bar_color = GREEN if time_ratio > 0.5 else YELLOW if time_ratio > 0.25 else RED
-            pygame.draw.rect(self.screen, GRAY, (SCREEN_WIDTH - 200, y + 20, bar_width, 8))
-            pygame.draw.rect(self.screen, bar_color, (SCREEN_WIDTH - 200, y + 20, int(bar_width * time_ratio), 8))
+            for i, order in enumerate(self.orders[:5]):
+                y = order_y + 55 + i * 55
+                recipe = RECIPES[order.recipe_name]
+                color = RED if order.remaining_time < 20 else BLACK
+                
+                draw_text_centered(self.screen, f"{recipe.name}", self.font_tiny, order_x + 110, y, color)
 
-        inv_y = SCREEN_HEIGHT - 100
-        inv_title = self.font_small.render("冰箱库存:", True, BLACK)
-        self.screen.blit(inv_title, (20, inv_y))
+                bar_width = 180
+                time_ratio = max(0, order.remaining_time / order.time_limit)
+                bar_color = GREEN if time_ratio > 0.5 else YELLOW if time_ratio > 0.25 else RED
+                pygame.draw.rect(self.screen, GRAY, (order_x + 20, y + 18, bar_width, 10))
+                pygame.draw.rect(self.screen, bar_color, (order_x + 20, y + 18, int(bar_width * time_ratio), 10))
 
         if self.fridge:
+            inv_panel = pygame.Surface((340, 80), pygame.SRCALPHA)
+            draw_rounded_rect(inv_panel, (0, 0, 340, 80), (*WHITE, panel_alpha))
+            inv_x, inv_y = 20, SCREEN_HEIGHT - 100
+            self.screen.blit(inv_panel, (inv_x, inv_y))
+            draw_rounded_rect(self.screen, (inv_x, inv_y, 340, 80), DARK_GRAY, radius=10, border=2)
+            
+            draw_text_centered(self.screen, "冰箱库存 (按1/2/3选择)", self.font_tiny, inv_x + 170, inv_y + 18, BLACK)
+
             items = [
-                ("蔬菜", self.fridge.inventory.get(IngredientType.VEGETABLE, 0), GREEN),
-                ("肉类", self.fridge.inventory.get(IngredientType.MEAT, 0), RED),
-                ("面粉", self.fridge.inventory.get(IngredientType.FLOUR, 0), WHITE),
+                ("蔬菜", self.fridge.inventory.get(IngredientType.VEGETABLE, 0), GREEN, IngredientType.VEGETABLE),
+                ("肉类", self.fridge.inventory.get(IngredientType.MEAT, 0), RED, IngredientType.MEAT),
+                ("面粉", self.fridge.inventory.get(IngredientType.FLOUR, 0), WHITE, IngredientType.FLOUR),
             ]
-            for i, (name, count, color) in enumerate(items):
-                x = 20 + i * 100
-                rect = pygame.Rect(x, inv_y + 35, 80, 30)
-                bg_color = color if self.selected_ingredient == [IngredientType.VEGETABLE, IngredientType.MEAT, IngredientType.FLOUR][i] else LIGHT_GRAY
-                pygame.draw.rect(self.screen, bg_color, rect)
-                pygame.draw.rect(self.screen, BLACK, rect, 2)
-                text = self.font_tiny.render(f"{name}: {count}", True, BLACK)
-                self.screen.blit(text, (x + 5, inv_y + 40))
-
-        day_text = self.font_small.render(f"第 {self.day} 天", True, BLACK)
-        self.screen.blit(day_text, (SCREEN_WIDTH // 2 - 50, 20))
-
-        time_text = self.font_small.render(f"剩余: {int(self.day_timer)}s", True, BLACK)
-        self.screen.blit(time_text, (SCREEN_WIDTH // 2 - 50, 50))
+            for i, (name, count, color, ing_type) in enumerate(items):
+                x = inv_x + 25 + i * 105
+                is_selected = self.selected_ingredient == ing_type
+                bg_color = color if is_selected else LIGHT_GRAY
+                
+                item_rect = (x, inv_y + 38, 95, 35)
+                pygame.draw.rect(self.screen, bg_color, item_rect)
+                pygame.draw.rect(self.screen, ORANGE if is_selected else BLACK, item_rect, 2)
+                draw_text_centered(self.screen, f"{name}: {count}", self.font_tiny, x + 47, inv_y + 55, BLACK)
 
     def draw(self):
         self.screen.fill(BEIGE)
@@ -570,24 +606,26 @@ class Game:
         pygame.display.flip()
 
     def draw_main_menu(self):
-        title = self.font_large.render("米其林主厨", True, GOLD)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 200))
-        self.screen.blit(title, title_rect)
+        menu_panel = pygame.Surface((600, 500), pygame.SRCALPHA)
+        draw_rounded_rect(menu_panel, (0, 0, 600, 500), (*WHITE, 240))
+        panel_x, panel_y = SCREEN_WIDTH // 2 - 300, 100
+        self.screen.blit(menu_panel, (panel_x, panel_y))
+        draw_rounded_rect(self.screen, (panel_x, panel_y, 600, 500), DARK_GRAY, radius=15, border=3)
+        
+        draw_text_centered(self.screen, "米其林主厨", self.font_large, SCREEN_WIDTH // 2, panel_y + 130, GOLD)
+        draw_text_centered(self.screen, "Restaurant Tycoon", self.font_medium, SCREEN_WIDTH // 2, panel_y + 190, DARK_GRAY)
 
-        subtitle = self.font_medium.render("Restaurant Tycoon", True, BLACK)
-        subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, 280))
-        self.screen.blit(subtitle, subtitle_rect)
-
-        start_btn = pygame.Rect(SCREEN_WIDTH // 2 - 100, 400, 200, 60)
+        start_btn = pygame.Rect(SCREEN_WIDTH // 2 - 120, panel_y + 260, 240, 70)
         pygame.draw.rect(self.screen, GREEN, start_btn)
         pygame.draw.rect(self.screen, BLACK, start_btn, 3)
-        start_text = self.font_medium.render("开始游戏", True, WHITE)
-        start_rect = start_text.get_rect(center=start_btn.center)
-        self.screen.blit(start_text, start_rect)
+        draw_text_centered(self.screen, "开始游戏", self.font_medium, start_btn.centerx, start_btn.centery, WHITE)
 
-        help_text = self.font_tiny.render("WASD移动 | 鼠标左键交互 | 空格加速 | E键交互 | 1/2/3选择食材", True, GRAY)
-        help_rect = help_text.get_rect(center=(SCREEN_WIDTH // 2, 550))
-        self.screen.blit(help_text, help_rect)
+        help_bg = pygame.Rect(panel_x + 30, panel_y + 360, 540, 110)
+        pygame.draw.rect(self.screen, LIGHT_GRAY, help_bg)
+        draw_text_centered(self.screen, "操作说明", self.font_small, SCREEN_WIDTH // 2, panel_y + 385, BLACK)
+        draw_text_centered(self.screen, "WASD/方向键移动 | 鼠标拿放 | 空格加速 | 1/2/3选食材", self.font_tiny, SCREEN_WIDTH // 2, panel_y + 420, DARK_GRAY)
+        draw_text_centered(self.screen, "靠近设备后点击交互", self.font_tiny, SCREEN_WIDTH // 2, panel_y + 445, DARK_GRAY)
+        draw_text_centered(self.screen, "重要: 请切换英文输入法并点击游戏窗口获得焦点!", self.font_tiny, SCREEN_WIDTH // 2, panel_y + 470, RED)
 
     def draw_game(self):
         for wall in self.walls:
@@ -619,39 +657,48 @@ class Game:
         overlay.set_alpha(180)
         self.screen.blit(overlay, (0, 0))
 
-        pause_text = self.font_large.render("暂停", True, WHITE)
-        pause_rect = pause_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-        self.screen.blit(pause_text, pause_rect)
+        panel_x, panel_y = SCREEN_WIDTH // 2 - 200, SCREEN_HEIGHT // 2 - 100
+        pause_panel = pygame.Surface((400, 200), pygame.SRCALPHA)
+        draw_rounded_rect(pause_panel, (0, 0, 400, 200), (*WHITE, 240))
+        self.screen.blit(pause_panel, (panel_x, panel_y))
+        draw_rounded_rect(self.screen, (panel_x, panel_y, 400, 200), DARK_GRAY, radius=15, border=3)
+
+        draw_text_centered(self.screen, "游戏暂停", self.font_large, SCREEN_WIDTH // 2, panel_y + 70, DARK_GRAY)
+        draw_text_centered(self.screen, "按 ESC 继续游戏", self.font_small, SCREEN_WIDTH // 2, panel_y + 130, GRAY)
 
     def draw_settlement(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         overlay.fill(BLACK)
-        overlay.set_alpha(200)
+        overlay.set_alpha(180)
         self.screen.blit(overlay, (0, 0))
 
-        title = self.font_large.render("今日结算", True, GOLD)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 150))
-        self.screen.blit(title, title_rect)
+        panel_x, panel_y = SCREEN_WIDTH // 2 - 250, 120
+        panel = pygame.Surface((500, 420), pygame.SRCALPHA)
+        draw_rounded_rect(panel, (0, 0, 500, 420), (*WHITE, 245))
+        self.screen.blit(panel, (panel_x, panel_y))
+        draw_rounded_rect(self.screen, (panel_x, panel_y, 500, 420), DARK_GRAY, radius=15, border=3)
 
-        income_text = self.font_medium.render(f"今日收入: {self.day_income} 金币", True, GREEN)
-        income_rect = income_text.get_rect(center=(SCREEN_WIDTH // 2, 250))
-        self.screen.blit(income_text, income_rect)
+        draw_text_centered(self.screen, "今日结算", self.font_large, SCREEN_WIDTH // 2, panel_y + 60, GOLD)
+        
+        divider = pygame.Rect(panel_x + 50, panel_y + 110, 400, 2)
+        pygame.draw.rect(self.screen, LIGHT_GRAY, divider)
 
-        total_text = self.font_medium.render(f"总金币: {self.gold}", True, GOLD)
-        total_rect = total_text.get_rect(center=(SCREEN_WIDTH // 2, 320))
-        self.screen.blit(total_text, total_rect)
+        draw_text_centered(self.screen, f"第 {self.day} 天结束", self.font_medium, SCREEN_WIDTH // 2, panel_y + 155, BLACK)
+        draw_text_centered(self.screen, f"今日收入: +{self.day_income}", self.font_medium, SCREEN_WIDTH // 2, panel_y + 210, GREEN)
+        draw_text_centered(self.screen, f"总金币: {self.gold}", self.font_medium, SCREEN_WIDTH // 2, panel_y + 270, GOLD)
+        
+        progress = min(100, int(self.gold / self.target_gold * 100))
+        draw_text_centered(self.screen, f"米其林进度: {progress}%", self.font_small, SCREEN_WIDTH // 2, panel_y + 320, ORANGE)
 
-        continue_btn = pygame.Rect(SCREEN_WIDTH // 2 - 100, 450, 200, 60)
+        continue_btn = pygame.Rect(SCREEN_WIDTH // 2 - 110, panel_y + 350, 220, 55)
         pygame.draw.rect(self.screen, GREEN, continue_btn)
-        pygame.draw.rect(self.screen, WHITE, continue_btn, 3)
-        continue_text = self.font_medium.render("继续", True, WHITE)
-        continue_rect = continue_text.get_rect(center=continue_btn.center)
-        self.screen.blit(continue_text, continue_rect)
+        pygame.draw.rect(self.screen, DARK_GRAY, continue_btn, 2)
+        draw_text_centered(self.screen, "下一天", self.font_medium, continue_btn.centerx, continue_btn.centery, WHITE)
 
     def draw_upgrade(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         overlay.fill(BLACK)
-        overlay.set_alpha(200)
+        overlay.set_alpha(180)
         self.screen.blit(overlay, (0, 0))
 
         title = self.font_large.render("升级商店", True, GOLD)
@@ -661,32 +708,37 @@ class Game:
     def draw_game_over(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         overlay.fill(BLACK)
-        overlay.set_alpha(200)
+        overlay.set_alpha(180)
         self.screen.blit(overlay, (0, 0))
 
-        title = self.font_large.render("恭喜获得米其林一星!", True, GOLD)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 200))
-        self.screen.blit(title, title_rect)
+        panel_x, panel_y = SCREEN_WIDTH // 2 - 280, 120
+        panel = pygame.Surface((560, 420), pygame.SRCALPHA)
+        draw_rounded_rect(panel, (0, 0, 560, 420), (*WHITE, 245))
+        self.screen.blit(panel, (panel_x, panel_y))
+        draw_rounded_rect(self.screen, (panel_x, panel_y, 560, 420), GOLD, radius=15, border=4)
 
-        final_text = self.font_medium.render(f"最终金币: {self.gold}", True, WHITE)
-        final_rect = final_text.get_rect(center=(SCREEN_WIDTH // 2, 320))
-        self.screen.blit(final_text, final_rect)
+        draw_text_centered(self.screen, "恭喜获得", self.font_medium, SCREEN_WIDTH // 2, panel_y + 110, BLACK)
+        draw_text_centered(self.screen, "米其林一星!", self.font_large, SCREEN_WIDTH // 2, panel_y + 165, GOLD)
+        
+        divider = pygame.Rect(panel_x + 60, panel_y + 215, 440, 2)
+        pygame.draw.rect(self.screen, GOLD, divider)
 
-        restart_btn = pygame.Rect(SCREEN_WIDTH // 2 - 100, 450, 200, 60)
+        draw_text_centered(self.screen, f"最终金币: {self.gold}", self.font_medium, SCREEN_WIDTH // 2, panel_y + 260, GOLD)
+        draw_text_centered(self.screen, f"用时: {self.day} 天", self.font_medium, SCREEN_WIDTH // 2, panel_y + 305, BLACK)
+
+        restart_btn = pygame.Rect(SCREEN_WIDTH // 2 - 120, panel_y + 345, 240, 55)
         pygame.draw.rect(self.screen, GREEN, restart_btn)
-        pygame.draw.rect(self.screen, WHITE, restart_btn, 3)
-        restart_text = self.font_medium.render("重新开始", True, WHITE)
-        restart_rect = restart_text.get_rect(center=restart_btn.center)
-        self.screen.blit(restart_text, restart_rect)
+        pygame.draw.rect(self.screen, DARK_GRAY, restart_btn, 2)
+        draw_text_centered(self.screen, "重新开始", self.font_medium, restart_btn.centerx, restart_btn.centery, WHITE)
 
     def handle_click(self, pos: Tuple[int, int]):
         if self.state == GameState.MAIN_MENU:
-            start_btn = pygame.Rect(SCREEN_WIDTH // 2 - 100, 400, 200, 60)
+            start_btn = pygame.Rect(SCREEN_WIDTH // 2 - 120, 360, 240, 70)
             if start_btn.collidepoint(pos):
                 self.state = GameState.PLAYING
 
         elif self.state == GameState.SETTLEMENT:
-            continue_btn = pygame.Rect(SCREEN_WIDTH // 2 - 100, 450, 200, 60)
+            continue_btn = pygame.Rect(SCREEN_WIDTH // 2 - 110, 470, 220, 55)
             if continue_btn.collidepoint(pos):
                 self.day += 1
                 self.day_income = 0
@@ -696,7 +748,7 @@ class Game:
                 self.state = GameState.PLAYING
 
         elif self.state == GameState.GAME_OVER:
-            restart_btn = pygame.Rect(SCREEN_WIDTH // 2 - 100, 450, 200, 60)
+            restart_btn = pygame.Rect(SCREEN_WIDTH // 2 - 120, 465, 240, 55)
             if restart_btn.collidepoint(pos):
                 self.reset_game()
 
